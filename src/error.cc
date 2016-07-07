@@ -1,24 +1,42 @@
+/*
+    error handling class implementation
+    Copyright (C) 2016 Giso Grimm
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+*/
 #include "error.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 
-error_msg_t::error_msg_t(const char* s_file,int l,const char* fmt,...)
+error_msg_t::error_msg_t(const char* srcfile,int srcline,const char* fmt,...)
 {
   int len(0);
   va_list ap;
   va_start(ap,fmt);
-  char * dummy_str = 0;
-  len = vsnprintf(dummy_str,0,fmt,ap);
-  len += strlen(s_file)+10;
+  char* ctmp = 0;
+  len = vsnprintf(ctmp,0,fmt,ap);
+  len += strlen(srcfile)+10;
   msg = new char[len+1];
-  snprintf(msg,len+1,"%s:%d: ",s_file,l);
+  snprintf(msg,len+1,"%s:%d: ",srcfile,srcline);
   uint32_t flen(strlen(msg));
-  dummy_str = &(msg[flen]);
+  ctmp = &(msg[flen]);
   va_end(ap);
   va_start(ap,fmt);    
-  vsnprintf(dummy_str,len+1-flen,fmt,ap);
+  vsnprintf(ctmp,len+1-flen,fmt,ap);
   msg[len] = '\0';
   va_end(ap);
 }
