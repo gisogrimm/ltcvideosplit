@@ -30,3 +30,6 @@
 
 # Emacs backup files
 *~
+
+# build directory
+build
