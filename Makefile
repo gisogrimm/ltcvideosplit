@@ -1,7 +1,7 @@
 BINFILES = ltcvideosplit
 OBJECTS = error.o
 
-EXTERNALS += libavutil libavformat libavcodec libswscale
+EXTERNALS += libavutil libavformat libavcodec ltc
 
 CXXFLAGS += -fPIC -Wall -msse -msse2 -mfpmath=sse -ffast-math	\
 -fomit-frame-pointer -fno-finite-math-only -L./

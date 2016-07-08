@@ -20,6 +20,7 @@
 #include <iostream>
 #include "error.h"
 #include <vector>
+#include <ltc.h>
 
 extern "C" {
 
@@ -31,6 +32,8 @@ extern "C" {
 
 #define DEBUG(x) std::cerr << __FILE__ << ":" << __LINE__ << ": " << #x << "=" << x << std::endl
 
+#define LTC_QUEUE_LENGTH 16
+
 class decoder_t 
 {
 public:
@@ -41,6 +44,7 @@ public:
   void process_audio(AVPacket* packet);
 private:
   AVCodecContext* open_decoder(AVCodecContext*);
+  void ff_compute_frame_duration(AVStream *st);
   AVFormatContext* pFormatCtx;
   AVCodecContext* pCodecCtxVideo;
   AVCodecContext* pCodecCtxAudio;
@@ -50,7 +54,38 @@ private:
   int audioStream;
   uint32_t frameno;
   std::vector<uint32_t> video_frame_starts;
+  LTCDecoder *ltcdecoder;
+  LTCFrameExt ltcframe;
+  int fps_den;
+  int fps_num;
 };
+
+void decoder_t::ff_compute_frame_duration(AVStream *st)
+{
+  if( st->codec->codec_type != AVMEDIA_TYPE_VIDEO )
+    return;
+  if (st->avg_frame_rate.num) {
+    fps_num = st->avg_frame_rate.den;
+    fps_den = st->avg_frame_rate.num;
+  } else if(st->time_base.num*1000LL > st->time_base.den) {
+    fps_num = st->time_base.num;
+    fps_den = st->time_base.den;
+  }else if(st->codec->time_base.num*1000LL > st->codec->time_base.den){
+    fps_num = st->codec->time_base.num;
+    fps_den = st->codec->time_base.den;
+    if (st->parser && st->parser->repeat_pict) {
+      if (fps_num > INT_MAX / (1 + st->parser->repeat_pict))
+        fps_den /= 1 + st->parser->repeat_pict;
+      else
+        fps_num *= 1 + st->parser->repeat_pict;
+    }
+    //If this codec can be interlaced or progressive then we need a parser to compute duration of a packet
+    //Thus if we have no parser in such case leave duration undefined.
+    if(st->codec->ticks_per_frame>1 && !st->parser){
+      fps_num = fps_den = 0;
+    }
+  }
+}
 
 AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
 {
@@ -75,7 +110,10 @@ decoder_t::decoder_t(const std::string& filename)
     pAudioFrame(avcodec_alloc_frame()),
     videoStream(-1),
     audioStream(-1),
-    frameno(0)
+    frameno(0),
+    ltcdecoder(NULL),
+    fps_den(0),
+    fps_num(0)
 {
   int averr(0);
   if((averr = avformat_open_input(&pFormatCtx, filename.c_str(), NULL, NULL)) < 0){
@@ -108,12 +146,16 @@ decoder_t::decoder_t(const std::string& filename)
       throw error_msg_t(__FILE__,__LINE__,"No audio stream found in file \"%s\".",filename.c_str());
     pCodecCtxVideo = open_decoder( pFormatCtx->streams[videoStream]->codec );
     pCodecCtxAudio = open_decoder( pFormatCtx->streams[audioStream]->codec );
-    DEBUG( pCodecCtxVideo->time_base.num );
-    DEBUG( pCodecCtxVideo->time_base.den );
+    ff_compute_frame_duration(pFormatCtx->streams[videoStream]);
+    if( !fps_num )
+      throw error_msg_t(__FILE__,__LINE__,"Invalid frame rate (0).");
+    DEBUG(fps_den);
+    DEBUG(fps_num);
     DEBUG( pCodecCtxAudio->time_base.num );
     DEBUG( pCodecCtxAudio->time_base.den );
     DEBUG( pCodecCtxAudio->sample_rate );
     DEBUG( pCodecCtxAudio->channels );
+    ltcdecoder = ltc_decoder_create(pCodecCtxAudio->sample_rate * pCodecCtxVideo->time_base.den / std::max(pCodecCtxVideo->time_base.num,1), LTC_QUEUE_LENGTH);
   }
   catch( ... ){
     avformat_close_input(&pFormatCtx);
@@ -164,7 +206,7 @@ void decoder_t::process_audio(AVPacket* packet)
     int data_size = av_samples_get_buffer_size(NULL, pCodecCtxAudio->channels,
                                                pAudioFrame->nb_samples,
                                                pCodecCtxAudio->sample_fmt, 1);
-    DEBUG(data_size);
+    //DEBUG(data_size);
     //fwrite(decoded_frame->data[0], 1, data_size, outfile);
   }
 }
