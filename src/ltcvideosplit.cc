@@ -1,20 +1,20 @@
 /*
-    ltcvideosplit - split video files based on audio-embedded LTC code
-    Copyright (C) 2016 Giso Grimm
+  ltcvideosplit - split video files based on audio-embedded LTC code
+  Copyright (C) 2016 Giso Grimm
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License along
-    with this program; if not, write to the Free Software Foundation, Inc.,
-    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+  You should have received a copy of the GNU General Public License along
+  with this program; if not, write to the Free Software Foundation, Inc.,
+  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 #include <string>
 #include <iostream>
@@ -33,6 +33,7 @@ extern "C" {
 #define DEBUG(x) std::cerr << __FILE__ << ":" << __LINE__ << ": " << #x << "=" << x << std::endl
 
 #define LTC_QUEUE_LENGTH 16
+#define SAMPLEBUFFERSIZE 2^17
 
 class decoder_t 
 {
@@ -55,10 +56,53 @@ private:
   uint32_t frameno;
   std::vector<uint32_t> video_frame_starts;
   LTCDecoder *ltcdecoder;
-  LTCFrameExt ltcframe;
   int fps_den;
   int fps_num;
+  uint32_t ltc_posinfo;
+  uint8_t* samplebuffer;
 };
+
+void convert_audio_samples(ltcsnd_sample_t* outbuffer, void* inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt)
+{
+  switch( fmt ){
+  case AV_SAMPLE_FMT_S16 : 
+    {
+      int16_t* lbuf((int16_t*)inbuffer);
+      int16_t vmax(0);
+      for(uint32_t k=0;k<size;++k){
+        outbuffer[k] = 128+0.00387573*lbuf[k*channels];
+        DEBUG((float)(lbuf[k]));
+        vmax = std::max(lbuf[k*channels],vmax);
+      }
+      DEBUG(vmax);
+      break;
+    }
+  case AV_SAMPLE_FMT_U8 : 
+    {
+      uint8_t* lbuf((uint8_t*)inbuffer);
+      for(uint32_t k=0;k<size;++k)
+        outbuffer[k] = lbuf[k*channels];
+      break;
+    }
+  case AV_SAMPLE_FMT_S32 :
+    {
+      int32_t* lbuf((int32_t*)inbuffer);
+      for(uint32_t k=0;k<size;++k)
+        outbuffer[k] = 128+5.9139e-08*lbuf[k*channels];
+      break;
+    }
+  case AV_SAMPLE_FMT_FLT :
+    {
+      float* lbuf((float*)inbuffer);
+      for(uint32_t k=0;k<size;++k)
+        outbuffer[k] = 128+127*lbuf[k*channels];
+      break;
+    }
+  default:
+    throw error_msg_t(__FILE__,__LINE__,"Unsupported sample format \"%s\".",
+                      av_get_sample_fmt_name( fmt ) );
+  }
+}
 
 void decoder_t::ff_compute_frame_duration(AVStream *st)
 {
@@ -113,7 +157,9 @@ decoder_t::decoder_t(const std::string& filename)
     frameno(0),
     ltcdecoder(NULL),
     fps_den(0),
-    fps_num(0)
+    fps_num(0),
+    ltc_posinfo(0),
+    samplebuffer(new uint8_t[SAMPLEBUFFERSIZE])
 {
   int averr(0);
   if((averr = avformat_open_input(&pFormatCtx, filename.c_str(), NULL, NULL)) < 0){
@@ -155,6 +201,11 @@ decoder_t::decoder_t(const std::string& filename)
     DEBUG( pCodecCtxAudio->time_base.den );
     DEBUG( pCodecCtxAudio->sample_rate );
     DEBUG( pCodecCtxAudio->channels );
+    ///* setup the data pointers in the AVFrame */
+    //if( avcodec_fill_audio_frame( pAudioFrame, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt,
+    //                              samplebuffer, SAMPLEBUFFERSIZE, 0) < 0 )
+    //  throw error_msg_t(__FILE__,__LINE__,"Unable to allocate audio frame buffers.");
+    avcodec_default_get_buffer(pCodecCtxAudio, pAudioFrame );
     ltcdecoder = ltc_decoder_create(pCodecCtxAudio->sample_rate * pCodecCtxVideo->time_base.den / std::max(pCodecCtxVideo->time_base.num,1), LTC_QUEUE_LENGTH);
   }
   catch( ... ){
@@ -165,6 +216,7 @@ decoder_t::decoder_t(const std::string& filename)
 
 decoder_t::~decoder_t()
 {
+  delete [] samplebuffer;
   avformat_close_input(&pFormatCtx);
 }
 
@@ -196,18 +248,36 @@ void decoder_t::process_audio(AVPacket* packet)
 {
   // decode ltc:
   int got_frame(0);
+  avcodec_get_frame_defaults( pAudioFrame );
   uint32_t len(avcodec_decode_audio4(pCodecCtxAudio, pAudioFrame, &got_frame, packet));
   if (len < 0) {
     fprintf(stderr, "Error while decoding\n");
     exit(1);
   }
   if (got_frame) {
+    DEBUG(len);
     /* if a frame has been decoded, output it */
     int data_size = av_samples_get_buffer_size(NULL, pCodecCtxAudio->channels,
                                                pAudioFrame->nb_samples,
                                                pCodecCtxAudio->sample_fmt, 1);
-    //DEBUG(data_size);
+    DEBUG(data_size);
+    //DEBUG(pCodecCtxAudio->sample_fmt);
+    DEBUG(av_get_sample_fmt_name (pCodecCtxAudio->sample_fmt));
+    DEBUG(pAudioFrame->nb_samples);
+    ltcsnd_sample_t ltcsamples[pAudioFrame->nb_samples];
+    convert_audio_samples(ltcsamples, pAudioFrame->data, pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt);
     //fwrite(decoded_frame->data[0], 1, data_size, outfile);
+    
+    
+    //ltcsnd_sample_t sound[BUFFER_SIZE];
+    ltc_decoder_write(ltcdecoder, ltcsamples, pAudioFrame->nb_samples, ltc_posinfo);
+    ltc_posinfo += pAudioFrame->nb_samples;
+    LTCFrameExt ltcframe;
+    while (ltc_decoder_read(ltcdecoder,&ltcframe)) {
+      DEBUG(ltcframe.off_start);
+      DEBUG(ltcframe.off_end);
+    }
+
   }
 }
 

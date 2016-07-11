@@ -17,6 +17,8 @@ all:
 
 VPATH = ../src
 
+.PHONY : clean
+
 include $(wildcard *.mk)
 
 %: %.o
@@ -27,6 +29,9 @@ include $(wildcard *.mk)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BINFILES): $(OBJECTS)
+
+clean:
+	rm -Rf build
 
 CXXFLAGS += `pkg-config --cflags $(EXTERNALS)`
 LDLIBS += `pkg-config --libs $(EXTERNALS)`
