@@ -62,7 +62,7 @@ private:
   uint8_t* samplebuffer;
 };
 
-void convert_audio_samples(ltcsnd_sample_t* outbuffer, void* inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt)
+void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt)
 {
   switch( fmt ){
   case AV_SAMPLE_FMT_S16 : 
@@ -71,10 +71,10 @@ void convert_audio_samples(ltcsnd_sample_t* outbuffer, void* inbuffer, uint32_t 
       int16_t vmax(0);
       for(uint32_t k=0;k<size;++k){
         outbuffer[k] = 128+0.00387573*lbuf[k*channels];
-        DEBUG((float)(lbuf[k]));
+        //DEBUG((float)(lbuf[k*channels]));
         vmax = std::max(lbuf[k*channels],vmax);
       }
-      DEBUG(vmax);
+      //DEBUG(vmax);
       break;
     }
   case AV_SAMPLE_FMT_U8 : 
@@ -223,6 +223,7 @@ decoder_t::~decoder_t()
 bool decoder_t::readframe()
 {
   AVPacket packet;
+  av_init_packet( &packet );
   if( av_read_frame( pFormatCtx, &packet ) >= 0 ){
     if( packet.stream_index == videoStream ){
       process_video( &packet );
@@ -255,17 +256,18 @@ void decoder_t::process_audio(AVPacket* packet)
     exit(1);
   }
   if (got_frame) {
-    DEBUG(len);
+    //DEBUG(len);
     /* if a frame has been decoded, output it */
-    int data_size = av_samples_get_buffer_size(NULL, pCodecCtxAudio->channels,
-                                               pAudioFrame->nb_samples,
-                                               pCodecCtxAudio->sample_fmt, 1);
-    DEBUG(data_size);
+    //int data_size = av_samples_get_buffer_size(NULL, pCodecCtxAudio->channels,
+    //                                           pAudioFrame->nb_samples,
+    //                                           pCodecCtxAudio->sample_fmt, 1);
+    //DEBUG(data_size);
     //DEBUG(pCodecCtxAudio->sample_fmt);
-    DEBUG(av_get_sample_fmt_name (pCodecCtxAudio->sample_fmt));
-    DEBUG(pAudioFrame->nb_samples);
+    //DEBUG(av_get_sample_fmt_name (pCodecCtxAudio->sample_fmt));
+    //DEBUG(pAudioFrame->nb_samples);
     ltcsnd_sample_t ltcsamples[pAudioFrame->nb_samples];
-    convert_audio_samples(ltcsamples, pAudioFrame->data, pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt);
+    //DEBUG(pAudioFrame->data);
+    convert_audio_samples(ltcsamples, pAudioFrame->data[0], pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt);
     //fwrite(decoded_frame->data[0], 1, data_size, outfile);
     
     
