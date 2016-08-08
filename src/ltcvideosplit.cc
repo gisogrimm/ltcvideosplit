@@ -31,64 +31,10 @@ extern "C" {
 
 }
 
-#include "writevideo.h"
+//#include "writevideo.h"
 
 #define LTC_QUEUE_LENGTH 160000
 #define SAMPLEBUFFERSIZE 2^17
-
-//class video_write_t
-//{
-//public:
-//  video_write_t(const std::string& fname,uint32_t startframe,AVFormatContext* formatctx,AVCodecContext* codec);
-//  ~video_write_t();
-//  int add_frame(AVPacket* pkt);
-//private:
-//  AVFormatContext *oc;
-//  AVStream* video_st;
-//};
-//
-//video_write_t::video_write_t(const std::string& fname,uint32_t startframe,AVFormatContext* formatctx,AVCodecContext* codec)
-//{
-//  char ctmp[fname.size()+32];
-//  sprintf(ctmp,"%s.%05d",fname.c_str(),startframe);
-//  oc = avformat_alloc_context();
-//  if (!oc)
-//    throw error_msg_t(__FILE__,__LINE__,"Memory error");
-//  oc->oformat = formatctx->oformat;
-//  snprintf(oc->filename, sizeof(oc->filename), "%s", ctmp);
-//  /* Add the audio and video streams using the default format codecs
-//   * and initialize the codecs. */
-//  AVStream* st = avformat_new_stream( oc, codec->codec );
-//  DEBUG(st->codec->width);
-//  if (!st)
-//    throw error_msg_t(__FILE__,__LINE__, "Could not alloc stream.");
-//  //open_video(oc, video_st);
-//  av_dump_format(oc, 0, ctmp, 1);
-//  /* open the output file, if needed */
-//  if (avio_open(&oc->pb, ctmp, AVIO_FLAG_WRITE) < 0) 
-//    throw error_msg_t(__FILE__,__LINE__,"Could not open '%s'", ctmp);
-//  /* Write the stream header, if any. */
-//  avformat_write_header(oc, NULL);
-//}
-//
-//video_write_t::~video_write_t()
-//{
-//  av_write_trailer(oc);
-//  //close_video(oc, video_st);
-//  for (uint32_t i = 0; i < oc->nb_streams; i++) {
-//    av_freep(&oc->streams[i]->codec);
-//    av_freep(&oc->streams[i]);
-//  }
-//  /* Close the output file. */
-//  avio_close(oc->pb);
-//  /* free the stream */
-//  av_free(oc);
-//}
-//
-//int video_write_t::add_frame(AVPacket* pkt)
-//{
-//  return av_interleaved_write_frame(oc, pkt);
-//}
 
 class decoder_t 
 {
@@ -125,7 +71,8 @@ private:
   uint32_t ltc_posinfo;
   uint8_t* samplebuffer;
   uint32_t current_frame;
-  writevideo_t* wrt;
+  uint32_t current_inframe;
+  //writevideo_t* wrt;
 };
 
 void decoder_t::scan_frame_map()
@@ -136,7 +83,6 @@ void decoder_t::scan_frame_map()
 void decoder_t::sort_frames()
 {
   av_seek_frame(pFormatCtx,videoStream,0,AVSEEK_FLAG_FRAME);
-  //avformat_seek_file(pFormatCtx,videoStream,0,0,0,AVSEEK_FLAG_FRAME);
   while( readframe_sort() );
 }
 
@@ -146,13 +92,9 @@ void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32
   case AV_SAMPLE_FMT_S16 : 
     {
       int16_t* lbuf((int16_t*)inbuffer);
-      //int16_t vmax(0);
       for(uint32_t k=0;k<size;++k){
         outbuffer[k] = 128+0.00387573*lbuf[k*channels];
-        //DEBUG((float)(lbuf[k*channels]));
-        //vmax = std::max(lbuf[k*channels],vmax);
       }
-      //DEBUG(vmax);
       break;
     }
   case AV_SAMPLE_FMT_U8 : 
@@ -225,7 +167,6 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
   return pCodecCtx;
 }
 
-
 decoder_t::decoder_t(const std::string& filename)
   : fname(filename),
     pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
@@ -240,7 +181,8 @@ decoder_t::decoder_t(const std::string& filename)
     ltc_posinfo(0),
     samplebuffer(new uint8_t[SAMPLEBUFFERSIZE]),
     current_frame(0),
-    wrt(NULL)
+    current_inframe(0)
+    //,wrt(NULL)
 {
   int averr(0);
   if((averr = avformat_open_input(&pFormatCtx, filename.c_str(), NULL, NULL)) < 0){
@@ -298,8 +240,8 @@ decoder_t::decoder_t(const std::string& filename)
 
 decoder_t::~decoder_t()
 {
-  if( wrt )
-    delete wrt;
+  //if( wrt )
+  //  delete wrt;
   delete [] samplebuffer;
   avformat_close_input(&pFormatCtx);
 }
@@ -358,17 +300,19 @@ void decoder_t::process_video_sort(AVPacket* packet)
       current_frame = lbound->second;
       char fname_new[fname.size()+32];
       sprintf( fname_new, "%s.%05d", fname.c_str(), current_frame );
-      std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
+      std::cout << current_inframe << " -> " << current_frame << std::endl;
+      //std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
       // create new file:
-      if( wrt )
-        delete wrt;
-      wrt = new writevideo_t( fname_new, pCodecCtxVideo, fps_den, fps_num );
+      //if( wrt )
+      //  delete wrt;
+      //wrt = new writevideo_t( fname_new, pCodecCtxVideo, fps_den, fps_num );
     }
     // write packet to file:
-    if( wrt )
-      wrt->add_packet(packet);
+    //if( wrt )
+    //  wrt->add_packet(packet);
   }
   current_frame++;
+  current_inframe++;
 }
 
 

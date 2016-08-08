@@ -75,38 +75,38 @@ writevideo_t::writevideo_t(const std::string& filename, const AVCodecContext* sr
 
 int writevideo_t::add_frame(AVFrame* frame)
 {
-  /* encode the image */
-  uint32_t out_size = avcodec_encode_video( st->codec, video_outbuf,
-                                            video_outbuf_size, frame );
-    /* If size is zero, it means the image was buffered. */
-    if (out_size > 0) {
-      AVPacket pkt;
-      av_init_packet(&pkt);
-      if (c->coded_frame->pts != AV_NOPTS_VALUE)
-	pkt.pts = av_rescale_q(c->coded_frame->pts,
-			       c->time_base, st->time_base);
-      if (c->coded_frame->key_frame)
-	pkt.flags |= AV_PKT_FLAG_KEY;
-      pkt.stream_index = st->index;
-      pkt.data = video_outbuf;
-      pkt.size = out_size;
-      /* Write the compressed frame to the media file. */
-      ret = av_interleaved_write_frame(oc, &pkt);
-    } else {
-      ret = 0;
-    }
-  }
-  //st->codec->time_base.den = fps_den;
-  //st->codec->time_base.num = fps_num;
-  //pkt->pts = frameno*st->codec->time_base.den/st->codec->time_base.num;
-  //pkt->dts = pkt->pts;
-  pkt->pts = AV_NOPTS_VALUE;
-  pkt->dts = AV_NOPTS_VALUE;
-  pkt->stream_index = 0;
-  pkt->flags |= AV_PKT_FLAG_KEY;
-  ++frameno;
-  return av_interleaved_write_frame(oc, pkt);
-  //return 0;
+//  /* encode the image */
+//  uint32_t out_size = avcodec_encode_video( st->codec, video_outbuf,
+//                                            video_outbuf_size, frame );
+//    /* If size is zero, it means the image was buffered. */
+//    if (out_size > 0) {
+//      AVPacket pkt;
+//      av_init_packet(&pkt);
+//      if (c->coded_frame->pts != AV_NOPTS_VALUE)
+//	pkt.pts = av_rescale_q(c->coded_frame->pts,
+//			       c->time_base, st->time_base);
+//      if (c->coded_frame->key_frame)
+//	pkt.flags |= AV_PKT_FLAG_KEY;
+//      pkt.stream_index = st->index;
+//      pkt.data = video_outbuf;
+//      pkt.size = out_size;
+//      /* Write the compressed frame to the media file. */
+//      ret = av_interleaved_write_frame(oc, &pkt);
+//    } else {
+//      ret = 0;
+//    }
+//  }
+//  //st->codec->time_base.den = fps_den;
+//  //st->codec->time_base.num = fps_num;
+//  //pkt->pts = frameno*st->codec->time_base.den/st->codec->time_base.num;
+//  //pkt->dts = pkt->pts;
+//  pkt->pts = AV_NOPTS_VALUE;
+//  pkt->dts = AV_NOPTS_VALUE;
+//  pkt->stream_index = 0;
+//  pkt->flags |= AV_PKT_FLAG_KEY;
+//  ++frameno;
+//  return av_interleaved_write_frame(oc, pkt);
+  return 0;
 }
 
 writevideo_t::~writevideo_t()
