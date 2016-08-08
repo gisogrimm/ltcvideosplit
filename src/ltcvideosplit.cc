@@ -27,14 +27,68 @@ extern "C" {
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
+  //#include <libswscale/swscale.h>
 
 }
 
-#define DEBUG(x) std::cerr << __FILE__ << ":" << __LINE__ << ": " << #x << "=" << x << std::endl
+#include "writevideo.h"
 
 #define LTC_QUEUE_LENGTH 160000
 #define SAMPLEBUFFERSIZE 2^17
+
+//class video_write_t
+//{
+//public:
+//  video_write_t(const std::string& fname,uint32_t startframe,AVFormatContext* formatctx,AVCodecContext* codec);
+//  ~video_write_t();
+//  int add_frame(AVPacket* pkt);
+//private:
+//  AVFormatContext *oc;
+//  AVStream* video_st;
+//};
+//
+//video_write_t::video_write_t(const std::string& fname,uint32_t startframe,AVFormatContext* formatctx,AVCodecContext* codec)
+//{
+//  char ctmp[fname.size()+32];
+//  sprintf(ctmp,"%s.%05d",fname.c_str(),startframe);
+//  oc = avformat_alloc_context();
+//  if (!oc)
+//    throw error_msg_t(__FILE__,__LINE__,"Memory error");
+//  oc->oformat = formatctx->oformat;
+//  snprintf(oc->filename, sizeof(oc->filename), "%s", ctmp);
+//  /* Add the audio and video streams using the default format codecs
+//   * and initialize the codecs. */
+//  AVStream* st = avformat_new_stream( oc, codec->codec );
+//  DEBUG(st->codec->width);
+//  if (!st)
+//    throw error_msg_t(__FILE__,__LINE__, "Could not alloc stream.");
+//  //open_video(oc, video_st);
+//  av_dump_format(oc, 0, ctmp, 1);
+//  /* open the output file, if needed */
+//  if (avio_open(&oc->pb, ctmp, AVIO_FLAG_WRITE) < 0) 
+//    throw error_msg_t(__FILE__,__LINE__,"Could not open '%s'", ctmp);
+//  /* Write the stream header, if any. */
+//  avformat_write_header(oc, NULL);
+//}
+//
+//video_write_t::~video_write_t()
+//{
+//  av_write_trailer(oc);
+//  //close_video(oc, video_st);
+//  for (uint32_t i = 0; i < oc->nb_streams; i++) {
+//    av_freep(&oc->streams[i]->codec);
+//    av_freep(&oc->streams[i]);
+//  }
+//  /* Close the output file. */
+//  avio_close(oc->pb);
+//  /* free the stream */
+//  av_free(oc);
+//}
+//
+//int video_write_t::add_frame(AVPacket* pkt)
+//{
+//  return av_interleaved_write_frame(oc, pkt);
+//}
 
 class decoder_t 
 {
@@ -51,6 +105,7 @@ private:
   void process_video_sort(AVPacket* packet);
   AVCodecContext* open_decoder(AVCodecContext*);
   void ff_compute_frame_duration(AVStream *st);
+  std::string fname;
   AVFormatContext* pFormatCtx;
   AVCodecContext* pCodecCtxVideo;
   AVCodecContext* pCodecCtxAudio;
@@ -69,6 +124,8 @@ private:
   uint32_t frame_duration;
   uint32_t ltc_posinfo;
   uint8_t* samplebuffer;
+  uint32_t current_frame;
+  writevideo_t* wrt;
 };
 
 void decoder_t::scan_frame_map()
@@ -170,7 +227,8 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
 
 
 decoder_t::decoder_t(const std::string& filename)
-  : pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
+  : fname(filename),
+    pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
     pVideoFrame(avcodec_alloc_frame()),
     pAudioFrame(avcodec_alloc_frame()),
     videoStream(-1),
@@ -180,7 +238,9 @@ decoder_t::decoder_t(const std::string& filename)
     fps_den(0),
     fps_num(0),
     ltc_posinfo(0),
-    samplebuffer(new uint8_t[SAMPLEBUFFERSIZE])
+    samplebuffer(new uint8_t[SAMPLEBUFFERSIZE]),
+    current_frame(0),
+    wrt(NULL)
 {
   int averr(0);
   if((averr = avformat_open_input(&pFormatCtx, filename.c_str(), NULL, NULL)) < 0){
@@ -238,6 +298,8 @@ decoder_t::decoder_t(const std::string& filename)
 
 decoder_t::~decoder_t()
 {
+  if( wrt )
+    delete wrt;
   delete [] samplebuffer;
   avformat_close_input(&pFormatCtx);
 }
@@ -291,11 +353,22 @@ void decoder_t::process_video_sort(AVPacket* packet)
                    pCodecCtxAudio->time_base.num );
   std::map<int64_t,uint32_t>::iterator lbound( ltc_frame_ends.lower_bound(aframe) );
   std::map<int64_t,uint32_t>::iterator ubound( ltc_frame_ends.upper_bound(aframe-frame_duration) );
-  if( (lbound != ltc_frame_ends.end()) && (ubound != ltc_frame_ends.end()) ){
-    DEBUG(lbound->second);
-    DEBUG(ubound->second);
-    DEBUG(aframe);
+  if( (lbound != ltc_frame_ends.end()) && (ubound != ltc_frame_ends.end()) && (lbound->second == ubound->second+1) ){
+    if( current_frame != lbound->second ){
+      current_frame = lbound->second;
+      char fname_new[fname.size()+32];
+      sprintf( fname_new, "%s.%05d", fname.c_str(), current_frame );
+      std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
+      // create new file:
+      if( wrt )
+        delete wrt;
+      wrt = new writevideo_t( fname_new, pCodecCtxVideo, fps_den, fps_num );
+    }
+    // write packet to file:
+    if( wrt )
+      wrt->add_packet(packet);
   }
+  current_frame++;
 }
 
 

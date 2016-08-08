@@ -1,5 +1,5 @@
 BINFILES = ltcvideosplit
-OBJECTS = error.o
+OBJECTS = error.o writevideo.o
 
 EXTERNALS += libavutil libavformat libavcodec ltc
 
@@ -10,6 +10,8 @@ VERSION = $(shell cat ../version)
 VERSION_MAJOR = $(shell cat ../version|sed -e 's/\..*//1')
 VERSION_MINOR = $(shell cat ../version|sed -e 's/[^\.]*\.//1')
 CXXFLAGS += -DVERSION_MAJOR=$(VERSION_MAJOR) -DVERSION_MINOR=$(VERSION_MINOR)
+
+CXXFLAGS += -g
 
 all:
 	mkdir -p build

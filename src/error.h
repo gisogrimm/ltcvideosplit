@@ -21,6 +21,8 @@
 
 #include <exception>
 
+#define DEBUG(x) std::cerr << __FILE__ << ":" << __LINE__ << ": " << #x << "=" << x << std::endl
+
 class error_msg_t : public std::exception {
 public:
   error_msg_t(const char* file,int line,const char* fmt,...);
