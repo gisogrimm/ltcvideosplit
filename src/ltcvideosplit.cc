@@ -20,6 +20,7 @@
 #include <iostream>
 #include "error.h"
 #include <vector>
+#include <map>
 #include <ltc.h>
 
 extern "C" {
@@ -32,7 +33,7 @@ extern "C" {
 
 #define DEBUG(x) std::cerr << __FILE__ << ":" << __LINE__ << ": " << #x << "=" << x << std::endl
 
-#define LTC_QUEUE_LENGTH 16
+#define LTC_QUEUE_LENGTH 160000
 #define SAMPLEBUFFERSIZE 2^17
 
 class decoder_t 
@@ -40,10 +41,14 @@ class decoder_t
 public:
   decoder_t(const std::string& filename);
   ~decoder_t();
+  void scan_frame_map();
+  void sort_frames();
+private:
   bool readframe();
+  bool readframe_sort();
   void process_video(AVPacket* packet);
   void process_audio(AVPacket* packet);
-private:
+  void process_video_sort(AVPacket* packet);
   AVCodecContext* open_decoder(AVCodecContext*);
   void ff_compute_frame_duration(AVStream *st);
   AVFormatContext* pFormatCtx;
@@ -54,13 +59,29 @@ private:
   int videoStream;
   int audioStream;
   uint32_t frameno;
-  std::vector<uint32_t> video_frame_starts;
+  // list of PTS in audio samples, from video codec:
+  std::vector<int64_t> video_frame_ends;
+  // map of LTC frame numbers as function of audio samples:
+  std::map<int64_t,uint32_t> ltc_frame_ends;
   LTCDecoder *ltcdecoder;
   int fps_den;
   int fps_num;
+  uint32_t frame_duration;
   uint32_t ltc_posinfo;
   uint8_t* samplebuffer;
 };
+
+void decoder_t::scan_frame_map()
+{
+  while( readframe() );
+}
+
+void decoder_t::sort_frames()
+{
+  av_seek_frame(pFormatCtx,videoStream,0,AVSEEK_FLAG_FRAME);
+  //avformat_seek_file(pFormatCtx,videoStream,0,0,0,AVSEEK_FLAG_FRAME);
+  while( readframe_sort() );
+}
 
 void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt)
 {
@@ -68,11 +89,11 @@ void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32
   case AV_SAMPLE_FMT_S16 : 
     {
       int16_t* lbuf((int16_t*)inbuffer);
-      int16_t vmax(0);
+      //int16_t vmax(0);
       for(uint32_t k=0;k<size;++k){
         outbuffer[k] = 128+0.00387573*lbuf[k*channels];
         //DEBUG((float)(lbuf[k*channels]));
-        vmax = std::max(lbuf[k*channels],vmax);
+        //vmax = std::max(lbuf[k*channels],vmax);
       }
       //DEBUG(vmax);
       break;
@@ -195,12 +216,13 @@ decoder_t::decoder_t(const std::string& filename)
     ff_compute_frame_duration(pFormatCtx->streams[videoStream]);
     if( !fps_num )
       throw error_msg_t(__FILE__,__LINE__,"Invalid frame rate (0).");
-    DEBUG(fps_den);
-    DEBUG(fps_num);
-    DEBUG( pCodecCtxAudio->time_base.num );
-    DEBUG( pCodecCtxAudio->time_base.den );
-    DEBUG( pCodecCtxAudio->sample_rate );
-    DEBUG( pCodecCtxAudio->channels );
+    frame_duration = fps_num*pCodecCtxAudio->time_base.den/fps_den/pCodecCtxAudio->time_base.num;
+    //DEBUG(fps_den);
+    //DEBUG(fps_num);
+    //DEBUG( pCodecCtxAudio->time_base.num );
+    //DEBUG( pCodecCtxAudio->time_base.den );
+    //DEBUG( pCodecCtxAudio->sample_rate );
+    //DEBUG( pCodecCtxAudio->channels );
     ///* setup the data pointers in the AVFrame */
     //if( avcodec_fill_audio_frame( pAudioFrame, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt,
     //                              samplebuffer, SAMPLEBUFFERSIZE, 0) < 0 )
@@ -236,14 +258,46 @@ bool decoder_t::readframe()
   return false;
 }
 
+bool decoder_t::readframe_sort()
+{
+  AVPacket packet;
+  av_init_packet( &packet );
+  if( av_read_frame( pFormatCtx, &packet ) >= 0 ){
+    if( packet.stream_index == videoStream ){
+      process_video_sort( &packet );
+    }
+    av_free_packet( &packet );
+    return true;
+  }
+  return false;
+}
+
 void decoder_t::process_video(AVPacket* packet)
 {
-  video_frame_starts.push_back( packet->pts * 
-                                pCodecCtxVideo->time_base.num * 
-                                pCodecCtxAudio->time_base.den /
-                                pCodecCtxVideo->time_base.den / 
-                                pCodecCtxAudio->time_base.num );
+  video_frame_ends.push_back( packet->pts * 
+                              pFormatCtx->streams[videoStream]->time_base.num * 
+                              pCodecCtxAudio->time_base.den /
+                              pFormatCtx->streams[videoStream]->time_base.den / 
+                              pCodecCtxAudio->time_base.num );
+  //DEBUG(video_frame_ends.back());
 }
+
+void decoder_t::process_video_sort(AVPacket* packet)
+{
+  uint64_t aframe( packet->pts * 
+                   pFormatCtx->streams[videoStream]->time_base.num * 
+                   pCodecCtxAudio->time_base.den /
+                   pFormatCtx->streams[videoStream]->time_base.den / 
+                   pCodecCtxAudio->time_base.num );
+  std::map<int64_t,uint32_t>::iterator lbound( ltc_frame_ends.lower_bound(aframe) );
+  std::map<int64_t,uint32_t>::iterator ubound( ltc_frame_ends.upper_bound(aframe-frame_duration) );
+  if( (lbound != ltc_frame_ends.end()) && (ubound != ltc_frame_ends.end()) ){
+    DEBUG(lbound->second);
+    DEBUG(ubound->second);
+    DEBUG(aframe);
+  }
+}
+
 
 void decoder_t::process_audio(AVPacket* packet)
 {
@@ -276,10 +330,23 @@ void decoder_t::process_audio(AVPacket* packet)
     ltc_posinfo += pAudioFrame->nb_samples;
     LTCFrameExt ltcframe;
     while (ltc_decoder_read(ltcdecoder,&ltcframe)) {
-      DEBUG(ltcframe.off_start);
-      DEBUG(ltcframe.off_end);
+      SMPTETimecode stime;
+      ltc_frame_to_time(&stime, &ltcframe.ltc, false );
+      uint64_t fno(stime.frame+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/fps_num);
+      ltc_frame_ends[ltcframe.off_end] = fno;
+      //std::cout << (float)stime.hours << ":" << (float)stime.mins << ":" << (float)stime.secs << "." << (float)stime.frame << std::endl;
+      //DEBUG(fno);
+      //DEBUG(ltcframe.ltc.frame_units);
+      //DEBUG(ltcframe.ltc.frame_tens);
+      //DEBUG(ltcframe.ltc.sync_word);
+      //DEBUG(ltcframe.off_end);
+      //DEBUG(ltcframe.volume);
+      //DEBUG((float)ltcframe.sample_min);
+      //DEBUG((float)ltcframe.sample_max);
     }
 
+  }else{
+    DEBUG("no frame");
   }
 }
 
@@ -291,7 +358,8 @@ int main(int argc, char** argv)
       throw error_msg_t(__FILE__,__LINE__,"Invalid number of arguments %d.",argc-1);
     av_register_all();
     decoder_t dec(argv[1]);
-    while( dec.readframe() );
+    dec.scan_frame_map();
+    dec.sort_frames();
     return 0;
   }
   catch( const std::exception& e ){
