@@ -308,7 +308,7 @@ void decoder_t::process_video_sort(AVPacket* packet)
       current_frame = lbound->second;
       char fname_new[fname.size()+32];
       sprintf( fname_new, "%s.%05d", fname.c_str(), current_frame );
-      std::cout << current_inframe << " -> " << current_frame << " (" << current_frame - current_inframe << ")" << std::endl;
+      std::cout << current_inframe << " -> " << current_frame << " (" << (int)current_frame - (int)current_inframe << ")" << std::endl;
       //std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
       // create new file:
       //if( wrt )
