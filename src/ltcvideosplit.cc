@@ -89,6 +89,14 @@ void decoder_t::sort_frames()
 void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt)
 {
   switch( fmt ){
+  case AV_SAMPLE_FMT_S16P : 
+    {
+      int16_t* lbuf((int16_t*)inbuffer);
+      for(uint32_t k=0;k<size;++k){
+        outbuffer[k] = 128+0.00387573*lbuf[k];
+      }
+      break;
+    }
   case AV_SAMPLE_FMT_S16 : 
     {
       int16_t* lbuf((int16_t*)inbuffer);

@@ -17,6 +17,10 @@ all:
 	mkdir -p build
 	$(MAKE) -C build -f ../Makefile $(BINFILES)
 
+install:
+	$(MAKE) all
+	(cd build && cp $(BINFILES) /usr/local/bin)
+
 VPATH = ../src
 
 .PHONY : clean
