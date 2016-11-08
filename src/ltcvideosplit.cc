@@ -22,6 +22,7 @@
 #include <vector>
 #include <map>
 #include <ltc.h>
+#include <getopt.h>
 
 extern "C" {
 
@@ -39,7 +40,7 @@ extern "C" {
 class decoder_t 
 {
 public:
-  decoder_t(const std::string& filename);
+  decoder_t(const std::string& filename, double audiofps_);
   ~decoder_t();
   void scan_frame_map();
   void sort_frames();
@@ -72,6 +73,7 @@ private:
   uint8_t* samplebuffer;
   uint32_t current_frame;
   uint32_t current_inframe;
+  double audiofps;
   //writevideo_t* wrt;
 };
 
@@ -175,7 +177,7 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
   return pCodecCtx;
 }
 
-decoder_t::decoder_t(const std::string& filename)
+decoder_t::decoder_t(const std::string& filename, double audiofps_)
   : fname(filename),
     pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
     pVideoFrame(avcodec_alloc_frame()),
@@ -189,7 +191,8 @@ decoder_t::decoder_t(const std::string& filename)
     ltc_posinfo(0),
     samplebuffer(new uint8_t[SAMPLEBUFFERSIZE]),
     current_frame(0),
-    current_inframe(0)
+    current_inframe(0),
+    audiofps(audiofps_)
     //,wrt(NULL)
 {
   int averr(0);
@@ -335,22 +338,8 @@ void decoder_t::process_audio(AVPacket* packet)
     exit(1);
   }
   if (got_frame) {
-    //DEBUG(len);
-    /* if a frame has been decoded, output it */
-    //int data_size = av_samples_get_buffer_size(NULL, pCodecCtxAudio->channels,
-    //                                           pAudioFrame->nb_samples,
-    //                                           pCodecCtxAudio->sample_fmt, 1);
-    //DEBUG(data_size);
-    //DEBUG(pCodecCtxAudio->sample_fmt);
-    //DEBUG(av_get_sample_fmt_name (pCodecCtxAudio->sample_fmt));
-    //DEBUG(pAudioFrame->nb_samples);
     ltcsnd_sample_t ltcsamples[pAudioFrame->nb_samples];
-    //DEBUG(pAudioFrame->data);
     convert_audio_samples(ltcsamples, pAudioFrame->data[0], pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt);
-    //fwrite(decoded_frame->data[0], 1, data_size, outfile);
-    
-    
-    //ltcsnd_sample_t sound[BUFFER_SIZE];
     ltc_decoder_write(ltcdecoder, ltcsamples, pAudioFrame->nb_samples, ltc_posinfo);
     ltc_posinfo += pAudioFrame->nb_samples;
     LTCFrameExt ltcframe;
@@ -358,16 +347,9 @@ void decoder_t::process_audio(AVPacket* packet)
       SMPTETimecode stime;
       ltc_frame_to_time(&stime, &ltcframe.ltc, false );
       uint64_t fno(stime.frame+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/fps_num);
+      if( audiofps > 0 )
+        fno = stime.frame*fps_den/(audiofps*fps_num)+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/fps_num;
       ltc_frame_ends[ltcframe.off_end] = fno;
-      //std::cout << (float)stime.hours << ":" << (float)stime.mins << ":" << (float)stime.secs << "." << (float)stime.frame << std::endl;
-      //DEBUG(fno);
-      //DEBUG(ltcframe.ltc.frame_units);
-      //DEBUG(ltcframe.ltc.frame_tens);
-      //DEBUG(ltcframe.ltc.sync_word);
-      //DEBUG(ltcframe.off_end);
-      //DEBUG(ltcframe.volume);
-      //DEBUG((float)ltcframe.sample_min);
-      //DEBUG((float)ltcframe.sample_max);
     }
 
   }else{
@@ -382,7 +364,31 @@ int main(int argc, char** argv)
     if( argc < 2 )
       throw error_msg_t(__FILE__,__LINE__,"Invalid number of arguments %d.",argc-1);
     av_register_all();
-    decoder_t dec(argv[1]);
+    double audiofps(0);
+    std::string filename("");
+    const char *options = "hf:";
+    struct option long_options[] = { 
+      { "help", 0, 0, 'h' },
+      { "fps",  1, 0, 'f' },
+      { 0, 0, 0, 0 }
+    };
+    int opt(0);
+    int option_index(0);
+    while( (opt = getopt_long(argc, argv, options,
+                              long_options, &option_index)) != -1){
+      switch(opt){
+      case 'h':
+        std::cout << "Usage:\nltcvideosplit [-f fps] filename\n\n-f overrides the frame rate embedded in the audio";
+        return -1;
+      case 'f':
+        audiofps = atof(optarg);
+        break;
+      }
+    }
+    if( optind < argc )
+      filename = argv[optind++];
+    
+    decoder_t dec(filename,audiofps);
     dec.scan_frame_map();
     dec.sort_frames();
     return 0;
