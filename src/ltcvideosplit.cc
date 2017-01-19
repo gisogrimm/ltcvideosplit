@@ -311,7 +311,14 @@ void decoder_t::process_video_sort(AVPacket* packet)
       current_frame = lbound->second;
       char fname_new[fname.size()+32];
       sprintf( fname_new, "%s.%05d", fname.c_str(), current_frame );
-      std::cout << current_inframe << " -> " << current_frame << " (" << (int)current_frame - (int)current_inframe << ")" << std::endl;
+      int delta_frame((int)current_frame - (int)current_inframe);
+      int delta_frame_abs(abs(delta_frame));
+      int delta_sec(delta_frame_abs*fps_num/fps_den);
+      char stime[32];
+      memset(stime,0,32);
+      sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,delta_frame_abs%fps_num );
+      std::cout << current_inframe << " -> " << current_frame << " (" << 
+        delta_frame << " " << stime << ")" << std::endl;
       //std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
       // create new file:
       //if( wrt )

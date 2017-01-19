@@ -1,4 +1,4 @@
-BINFILES = ltcvideosplit
+BINFILES = ltcvideosplit sndfile-bcastinfo
 OBJECTS = error.o writevideo.o
 
 EXTERNALS += libavutil libavformat libavcodec ltc
@@ -42,3 +42,4 @@ clean:
 CXXFLAGS += `pkg-config --cflags $(EXTERNALS)`
 LDLIBS += `pkg-config --libs $(EXTERNALS)`
 
+sndfile-bcastinfo: EXTERNALS+=sndfile
