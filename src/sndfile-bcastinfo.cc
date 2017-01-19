@@ -15,12 +15,16 @@ int main(int argc, char** argv)
     SNDFILE* sf(sf_open(argv[1],SFM_READ,&info));
     if( !sf )
       throw error_msg_t(__FILE__,__LINE__,"Unable to open file \"%s\".",argv[1]);
-    std::cout << (info.format & SF_FORMAT_TYPEMASK) << std::endl;
     SF_BROADCAST_INFO bcinfo;
     if( !sf_command(sf,SFC_GET_BROADCAST_INFO,&bcinfo,sizeof(bcinfo)) )
       throw error_msg_t(__FILE__,__LINE__,"The file \"%s\" does not contain a Broadcast Extension chunk.",argv[1]);
-    PR(time_reference_low);
-    PR(time_reference_high);
+    int sec(bcinfo.time_reference_low/info.samplerate);
+    int msec((1000*(bcinfo.time_reference_low % info.samplerate))/info.samplerate);
+    char stime[32];
+    memset(stime,0,32);
+    sprintf( stime, "%02d:%02d:%02d.%03d (%d)",sec/3600,(sec/60)%60,sec%60,msec,(25*bcinfo.time_reference_low)/info.samplerate);
+    std::cout << stime << std::endl;
+    //PR(time_reference_high);
   } 
   catch( const std::exception& e){
     std::cerr << "Error:\n" << e.what() << std::endl;
