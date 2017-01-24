@@ -23,6 +23,7 @@
 #include <map>
 #include <ltc.h>
 #include <getopt.h>
+#include <set>
 
 extern "C" {
 
@@ -40,7 +41,7 @@ extern "C" {
 class decoder_t 
 {
 public:
-  decoder_t(const std::string& filename, double audiofps_);
+  decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes);
   ~decoder_t();
   void scan_frame_map();
   void sort_frames();
@@ -74,6 +75,7 @@ private:
   uint32_t current_frame;
   uint32_t current_inframe;
   double audiofps;
+  std::set<uint32_t> decodeframes_;
   //writevideo_t* wrt;
 };
 
@@ -177,11 +179,13 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
   return pCodecCtx;
 }
 
-decoder_t::decoder_t(const std::string& filename, double audiofps_)
+decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes)
   : fname(filename),
     pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
-    pVideoFrame(avcodec_alloc_frame()),
-    pAudioFrame(avcodec_alloc_frame()),
+    pVideoFrame(av_frame_alloc()),
+    //pVideoFrame(avcodec_alloc_frame()),
+    pAudioFrame(av_frame_alloc()),
+    //pAudioFrame(avcodec_alloc_frame()),
     videoStream(-1),
     audioStream(-1),
     frameno(0),
@@ -192,7 +196,8 @@ decoder_t::decoder_t(const std::string& filename, double audiofps_)
     samplebuffer(new uint8_t[SAMPLEBUFFERSIZE]),
     current_frame(0),
     current_inframe(0),
-    audiofps(audiofps_)
+    audiofps(audiofps_),
+    decodeframes_(decodeframes)
     //,wrt(NULL)
 {
   int averr(0);
@@ -373,10 +378,12 @@ int main(int argc, char** argv)
     av_register_all();
     double audiofps(0);
     std::string filename("");
-    const char *options = "hf:";
+    std::set<uint32_t> decodeframes;
+    const char *options = "hf:d:";
     struct option long_options[] = { 
       { "help", 0, 0, 'h' },
       { "fps",  1, 0, 'f' },
+      { "decode", 1, 0, 'd' },
       { 0, 0, 0, 0 }
     };
     int opt(0);
@@ -390,12 +397,15 @@ int main(int argc, char** argv)
       case 'f':
         audiofps = atof(optarg);
         break;
+      case 'd':
+        decodeframes.insert( atoi( optarg ) );
+        break;
       }
     }
     if( optind < argc )
       filename = argv[optind++];
     
-    decoder_t dec(filename,audiofps);
+    decoder_t dec(filename,audiofps,decodeframes);
     dec.scan_frame_map();
     dec.sort_frames();
     return 0;
