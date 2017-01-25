@@ -182,10 +182,10 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
 decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes)
   : fname(filename),
     pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
-    pVideoFrame(av_frame_alloc()),
-    //pVideoFrame(avcodec_alloc_frame()),
-    pAudioFrame(av_frame_alloc()),
-    //pAudioFrame(avcodec_alloc_frame()),
+    //pVideoFrame(av_frame_alloc()),
+    pVideoFrame(avcodec_alloc_frame()),
+    //pAudioFrame(av_frame_alloc()),
+    pAudioFrame(avcodec_alloc_frame()),
     videoStream(-1),
     audioStream(-1),
     frameno(0),
@@ -321,7 +321,7 @@ void decoder_t::process_video_sort(AVPacket* packet)
       int delta_sec(delta_frame_abs*fps_num/fps_den);
       char stime[32];
       memset(stime,0,32);
-      sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,delta_frame_abs%fps_num );
+      sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,(delta_frame_abs*fps_num)%fps_den );
       std::cout << current_inframe << " -> " << current_frame << " (" << 
         delta_frame << " " << stime << ")" << std::endl;
       //std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
