@@ -41,7 +41,7 @@ extern "C" {
 class decoder_t 
 {
 public:
-  decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes);
+  decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes, uint32_t channel);
   ~decoder_t();
   void scan_frame_map();
   void sort_frames();
@@ -76,6 +76,7 @@ private:
   uint32_t current_inframe;
   double audiofps;
   std::set<uint32_t> decodeframes_;
+  uint32_t channel_;
   //writevideo_t* wrt;
 };
 
@@ -90,12 +91,12 @@ void decoder_t::sort_frames()
   while( readframe_sort() );
 }
 
-void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt)
+void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t** inbuffer, uint32_t size, uint32_t channels, AVSampleFormat fmt, uint32_t channel)
 {
   switch( fmt ){
   case AV_SAMPLE_FMT_S16P : 
     {
-      int16_t* lbuf((int16_t*)inbuffer);
+      int16_t* lbuf((int16_t*)(inbuffer[channel]));
       for(uint32_t k=0;k<size;++k){
         outbuffer[k] = 128+0.00387573*lbuf[k];
       }
@@ -103,9 +104,9 @@ void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32
     }
   case AV_SAMPLE_FMT_S16 : 
     {
-      int16_t* lbuf((int16_t*)inbuffer);
+      int16_t* lbuf((int16_t*)(inbuffer[0]));
       for(uint32_t k=0;k<size;++k){
-        outbuffer[k] = 128+0.00387573*lbuf[k*channels];
+        outbuffer[k] = 128+0.00387573*lbuf[k*channels+channel];
       }
       break;
     }
@@ -113,21 +114,21 @@ void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t* inbuffer, uint32
     {
       uint8_t* lbuf((uint8_t*)inbuffer);
       for(uint32_t k=0;k<size;++k)
-        outbuffer[k] = lbuf[k*channels];
+        outbuffer[k] = lbuf[k*channels+channel];
       break;
     }
   case AV_SAMPLE_FMT_S32 :
     {
-      int32_t* lbuf((int32_t*)inbuffer);
+      int32_t* lbuf((int32_t*)(inbuffer[0]));
       for(uint32_t k=0;k<size;++k)
-        outbuffer[k] = 128+5.9139e-08*lbuf[k*channels];
+        outbuffer[k] = 128+5.9139e-08*lbuf[k*channels+channel];
       break;
     }
   case AV_SAMPLE_FMT_FLT :
     {
-      float* lbuf((float*)inbuffer);
+      float* lbuf((float*)(inbuffer[0]));
       for(uint32_t k=0;k<size;++k)
-        outbuffer[k] = 128+127*lbuf[k*channels];
+        outbuffer[k] = 128+127*lbuf[k*channels+channel];
       break;
     }
   default:
@@ -179,7 +180,7 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
   return pCodecCtx;
 }
 
-decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes)
+decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes, uint32_t channel)
   : fname(filename),
     pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
     //pVideoFrame(av_frame_alloc()),
@@ -197,7 +198,8 @@ decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::s
     current_frame(0),
     current_inframe(0),
     audiofps(audiofps_),
-    decodeframes_(decodeframes)
+  decodeframes_(decodeframes),
+  channel_(channel)
     //,wrt(NULL)
 {
   int averr(0);
@@ -351,7 +353,7 @@ void decoder_t::process_audio(AVPacket* packet)
   }
   if (got_frame) {
     ltcsnd_sample_t ltcsamples[pAudioFrame->nb_samples];
-    convert_audio_samples(ltcsamples, pAudioFrame->data[0], pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt);
+    convert_audio_samples(ltcsamples, pAudioFrame->data, pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt,channel_);
     ltc_decoder_write(ltcdecoder, ltcsamples, pAudioFrame->nb_samples, ltc_posinfo);
     ltc_posinfo += pAudioFrame->nb_samples;
     LTCFrameExt ltcframe;
@@ -379,11 +381,13 @@ int main(int argc, char** argv)
     double audiofps(0);
     std::string filename("");
     std::set<uint32_t> decodeframes;
+    uint32_t channel(0);
     const char *options = "hf:d:";
     struct option long_options[] = { 
       { "help", 0, 0, 'h' },
       { "fps",  1, 0, 'f' },
       { "decode", 1, 0, 'd' },
+      { "channel", 1, 0, 'c' },
       { 0, 0, 0, 0 }
     };
     int opt(0);
@@ -394,6 +398,9 @@ int main(int argc, char** argv)
       case 'h':
         std::cout << "Usage:\nltcvideosplit [-f fps] filename\n\n-f overrides the frame rate embedded in the audio";
         return -1;
+      case 'c':
+        channel = atoi(optarg);
+        break;
       case 'f':
         audiofps = atof(optarg);
         break;
@@ -405,7 +412,7 @@ int main(int argc, char** argv)
     if( optind < argc )
       filename = argv[optind++];
     
-    decoder_t dec(filename,audiofps,decodeframes);
+    decoder_t dec(filename,audiofps,decodeframes,channel);
     dec.scan_frame_map();
     dec.sort_frames();
     return 0;
