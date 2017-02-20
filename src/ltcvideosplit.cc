@@ -382,7 +382,7 @@ int main(int argc, char** argv)
     std::string filename("");
     std::set<uint32_t> decodeframes;
     uint32_t channel(0);
-    const char *options = "hf:d:";
+    const char *options = "hf:d:c:";
     struct option long_options[] = { 
       { "help", 0, 0, 'h' },
       { "fps",  1, 0, 'f' },
