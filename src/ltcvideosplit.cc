@@ -78,6 +78,8 @@ private:
   std::set<uint32_t> decodeframes_;
   uint32_t channel_;
   //writevideo_t* wrt;
+public:
+  bool b_list;
 };
 
 void decoder_t::scan_frame_map()
@@ -199,7 +201,8 @@ decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::s
     current_inframe(0),
     audiofps(audiofps_),
   decodeframes_(decodeframes),
-  channel_(channel)
+  channel_(channel),
+  b_list(false)
     //,wrt(NULL)
 {
   int averr(0);
@@ -237,16 +240,6 @@ decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::s
     if( !fps_num )
       throw error_msg_t(__FILE__,__LINE__,"Invalid frame rate (0).");
     frame_duration = fps_num*pCodecCtxAudio->time_base.den/fps_den/pCodecCtxAudio->time_base.num;
-    //DEBUG(fps_den);
-    //DEBUG(fps_num);
-    //DEBUG( pCodecCtxAudio->time_base.num );
-    //DEBUG( pCodecCtxAudio->time_base.den );
-    //DEBUG( pCodecCtxAudio->sample_rate );
-    //DEBUG( pCodecCtxAudio->channels );
-    ///* setup the data pointers in the AVFrame */
-    //if( avcodec_fill_audio_frame( pAudioFrame, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt,
-    //                              samplebuffer, SAMPLEBUFFERSIZE, 0) < 0 )
-    //  throw error_msg_t(__FILE__,__LINE__,"Unable to allocate audio frame buffers.");
     avcodec_default_get_buffer(pCodecCtxAudio, pAudioFrame );
     ltcdecoder = ltc_decoder_create(pCodecCtxAudio->sample_rate * pCodecCtxVideo->time_base.den / std::max(pCodecCtxVideo->time_base.num,1), LTC_QUEUE_LENGTH);
   }
@@ -324,8 +317,12 @@ void decoder_t::process_video_sort(AVPacket* packet)
       char stime[32];
       memset(stime,0,32);
       sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,(delta_frame_abs*fps_num)%fps_den );
-      std::cout << current_inframe << " -> " << current_frame << " (" << 
-        delta_frame << " " << stime << ")" << std::endl;
+      if( b_list ){
+        std::cout << current_inframe << " " << current_frame << " " << delta_frame << std::endl;
+      }else{
+        std::cout << current_inframe << " -> " << current_frame << " (" << 
+          delta_frame << " " << stime << ")" << std::endl;
+      }
       //std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
       // create new file:
       //if( wrt )
@@ -371,6 +368,18 @@ void decoder_t::process_audio(AVPacket* packet)
   }
 }
 
+void app_usage(const std::string& app_name,struct option * opt,const std::string& app_arg = "")
+{
+  std::cout << "Usage:\n\n" << app_name << " [options] " << app_arg << "\n\nOptions:\n\n";
+  while( opt->name ){
+    std::cout << "  -" << (char)(opt->val) << " " << (opt->has_arg?"#":"") <<
+      "\n  --" << opt->name << (opt->has_arg?"=#":"") << "\n\n";
+    opt++;
+  }
+  std::cout << std::endl;
+}
+
+
 int main(int argc, char** argv)
 {
   std::cerr << "ltcvideosplit version " << VERSION_MAJOR << "." << VERSION_MINOR << std::endl;
@@ -382,21 +391,24 @@ int main(int argc, char** argv)
     std::string filename("");
     std::set<uint32_t> decodeframes;
     uint32_t channel(0);
-    const char *options = "hf:d:c:";
+    const char *options = "hf:d:c:o";
     struct option long_options[] = { 
       { "help", 0, 0, 'h' },
       { "fps",  1, 0, 'f' },
       { "decode", 1, 0, 'd' },
       { "channel", 1, 0, 'c' },
+      { "offsetlist", 0, 0, 'o' },
       { 0, 0, 0, 0 }
     };
     int opt(0);
     int option_index(0);
+    bool offsetlist(false);
     while( (opt = getopt_long(argc, argv, options,
                               long_options, &option_index)) != -1){
       switch(opt){
       case 'h':
-        std::cout << "Usage:\nltcvideosplit [-f fps] filename\n\n-f overrides the frame rate embedded in the audio";
+        app_usage("ltcvideosplit",long_options,"filename");
+        std::cout << "-f overrides the frame rate embedded in the audio";
         return -1;
       case 'c':
         channel = atoi(optarg);
@@ -407,12 +419,16 @@ int main(int argc, char** argv)
       case 'd':
         decodeframes.insert( atoi( optarg ) );
         break;
+      case 'o':
+        offsetlist = true;
+        break;
       }
     }
     if( optind < argc )
       filename = argv[optind++];
     
     decoder_t dec(filename,audiofps,decodeframes,channel);
+    dec.b_list = offsetlist;
     dec.scan_frame_map();
     dec.sort_frames();
     return 0;
