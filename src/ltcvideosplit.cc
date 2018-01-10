@@ -133,6 +133,14 @@ void convert_audio_samples(ltcsnd_sample_t* outbuffer, uint8_t** inbuffer, uint3
         outbuffer[k] = 128+127*lbuf[k*channels+channel];
       break;
     }
+  case AV_SAMPLE_FMT_FLTP : 
+    {
+      float* lbuf((float*)(inbuffer[channel]));
+      for(uint32_t k=0;k<size;++k){
+        outbuffer[k] = 128+127*lbuf[k];
+      }
+      break;
+    }
   default:
     throw error_msg_t(__FILE__,__LINE__,"Unsupported sample format \"%s\".",
                       av_get_sample_fmt_name( fmt ) );
