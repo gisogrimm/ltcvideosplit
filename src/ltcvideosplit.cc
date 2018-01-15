@@ -41,7 +41,7 @@ extern "C" {
 class decoder_t 
 {
 public:
-  decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes, uint32_t channel);
+  decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes, uint32_t channel, uint32_t fstep_);
   ~decoder_t();
   void scan_frame_map();
   void sort_frames();
@@ -80,6 +80,9 @@ private:
   //writevideo_t* wrt;
 public:
   bool b_list;
+  uint32_t fstep;
+  // step decrement variable:
+  uint32_t fstepdec;
 };
 
 void decoder_t::scan_frame_map()
@@ -190,7 +193,7 @@ AVCodecContext* decoder_t::open_decoder(AVCodecContext* pCodecCtxOrig)
   return pCodecCtx;
 }
 
-decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes, uint32_t channel)
+decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::set<uint32_t>& decodeframes, uint32_t channel, uint32_t fstep_)
   : fname(filename),
     pFormatCtx(NULL),pCodecCtxVideo(NULL),pCodecCtxAudio(NULL),
     //pVideoFrame(av_frame_alloc()),
@@ -210,8 +213,9 @@ decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::s
     audiofps(audiofps_),
   decodeframes_(decodeframes),
   channel_(channel),
-  b_list(false)
-    //,wrt(NULL)
+  b_list(false),
+  fstep(fstep_),
+  fstepdec(0)
 {
   int averr(0);
   if((averr = avformat_open_input(&pFormatCtx, filename.c_str(), NULL, NULL)) < 0){
@@ -247,6 +251,9 @@ decoder_t::decoder_t(const std::string& filename, double audiofps_, const std::s
     ff_compute_frame_duration(pFormatCtx->streams[videoStream]);
     if( !fps_num )
       throw error_msg_t(__FILE__,__LINE__,"Invalid frame rate (0).");
+    if( !b_list ){
+      std::cerr << "fps: " << fps_den << "/" << fps_num << "\n";
+    }
     frame_duration = fps_num*pCodecCtxAudio->time_base.den/fps_den/pCodecCtxAudio->time_base.num;
     avcodec_default_get_buffer(pCodecCtxAudio, pAudioFrame );
     ltcdecoder = ltc_decoder_create(pCodecCtxAudio->sample_rate * pCodecCtxVideo->time_base.den / std::max(pCodecCtxVideo->time_base.num,1), LTC_QUEUE_LENGTH);
@@ -346,48 +353,45 @@ int save_frame_as_jpeg(AVCodecContext *pCodecCtx, AVFrame *pFrame, int FrameNo) 
 
 void decoder_t::process_video_sort(AVPacket* packet)
 {
-  uint64_t aframe( packet->pts * 
-                   pFormatCtx->streams[videoStream]->time_base.num * 
-                   pCodecCtxAudio->time_base.den /
-                   pFormatCtx->streams[videoStream]->time_base.den / 
-                   pCodecCtxAudio->time_base.num );
-  std::map<int64_t,uint32_t>::iterator lbound( ltc_frame_ends.lower_bound(aframe) );
-  std::map<int64_t,uint32_t>::iterator ubound( ltc_frame_ends.upper_bound(aframe-frame_duration) );
-  if( (lbound != ltc_frame_ends.end()) && (ubound != ltc_frame_ends.end()) && (lbound->second == ubound->second+1) ){
-    if( current_frame != lbound->second ){
-      current_frame = lbound->second;
-      char fname_new[fname.size()+32];
-      sprintf( fname_new, "%s.%05d", fname.c_str(), current_frame );
-      int delta_frame((int)current_frame - (int)current_inframe);
-      int delta_frame_abs(abs(delta_frame));
-      int delta_sec(delta_frame_abs*fps_num/fps_den);
-      char stime[32];
-      memset(stime,0,32);
-      sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,(delta_frame_abs*fps_num)%fps_den );
-      if( b_list ){
-        std::cout << current_inframe << " " << current_frame << " " << delta_frame << std::endl;
-      }else{
-        std::cout << current_inframe << " -> " << current_frame << " (" << 
-          delta_frame << " " << stime << ")" << std::endl;
+  if( fstepdec )
+    fstepdec--;
+  if( !fstepdec ){
+    fstepdec = fstep;
+    uint64_t aframe( packet->pts * 
+                     pFormatCtx->streams[videoStream]->time_base.num * 
+                     pCodecCtxAudio->time_base.den /
+                     pFormatCtx->streams[videoStream]->time_base.den / 
+                     pCodecCtxAudio->time_base.num );
+    std::map<int64_t,uint32_t>::iterator lbound( ltc_frame_ends.lower_bound(aframe) );
+    std::map<int64_t,uint32_t>::iterator ubound( ltc_frame_ends.upper_bound(aframe-frame_duration) );
+    if( (lbound != ltc_frame_ends.end()) && (ubound != ltc_frame_ends.end()) && (lbound->second == ubound->second+1) ){
+      if( current_frame != lbound->second ){
+        current_frame = lbound->second;
+        char fname_new[fname.size()+32];
+        sprintf( fname_new, "%s.%05d", fname.c_str(), current_frame );
+        int delta_frame((int)current_frame - (int)current_inframe);
+        delta_frame *= fstep;
+        int delta_frame_abs(abs(delta_frame));
+        int delta_sec(delta_frame_abs*fps_num/fps_den);
+        char stime[32];
+        memset(stime,0,32);
+        sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,(delta_frame_abs*fps_num)%fps_den );
+        if( b_list ){
+          std::cout << current_inframe*fstep << " " << current_frame*fstep << " " << delta_frame << std::endl;
+        }else{
+          std::cout << current_inframe*fstep << " -> " << current_frame*fstep << " (" << 
+            delta_frame << " " << stime << ")" << std::endl;
+        }
       }
-      //std::cout << "Creating new file '" << fname_new << "' for frame " << current_frame << " at sample " << aframe << "." << std::endl;
-      // create new file:
-      //if( wrt )
-      //  delete wrt;
-      //wrt = new writevideo_t( fname_new, pCodecCtxVideo, fps_den, fps_num );
     }
-    // write packet to file:
-    //if( wrt )
-    //  wrt->add_packet(packet);
+    current_frame++;
+    current_inframe++;
   }
-  current_frame++;
-  current_inframe++;
 }
-
 
 void decoder_t::process_audio(AVPacket* packet)
 {
-  // decode ltc:
+  // first, decode audio frame from video:
   int got_frame(0);
   avcodec_get_frame_defaults( pAudioFrame );
   uint32_t len(avcodec_decode_audio4(pCodecCtxAudio, pAudioFrame, &got_frame, packet));
@@ -395,6 +399,7 @@ void decoder_t::process_audio(AVPacket* packet)
     fprintf(stderr, "Error while decoding\n");
     exit(1);
   }
+  // now decode LTC from audio:
   if (got_frame) {
     ltcsnd_sample_t ltcsamples[pAudioFrame->nb_samples];
     convert_audio_samples(ltcsamples, pAudioFrame->data, pAudioFrame->nb_samples, pCodecCtxAudio->channels, pCodecCtxAudio->sample_fmt,channel_);
@@ -404,12 +409,12 @@ void decoder_t::process_audio(AVPacket* packet)
     while (ltc_decoder_read(ltcdecoder,&ltcframe)) {
       SMPTETimecode stime;
       ltc_frame_to_time(&stime, &ltcframe.ltc, false );
-      uint64_t fno(stime.frame+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/fps_num);
+      uint64_t fno(stime.frame+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/(fps_num*fstep));
       if( audiofps > 0 )
-        fno = stime.frame*fps_den/(audiofps*fps_num)+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/fps_num;
+        fno = stime.frame*fps_den/(audiofps*fps_num)+fps_den*(stime.secs+stime.mins*60+stime.hours*3600)/(fps_num*fstep);
+      // 'ltcframe.off_end' is the audio sample number of the LTC frame end.
       ltc_frame_ends[ltcframe.off_end] = fno;
     }
-
   }else{
     DEBUG("no frame");
   }
@@ -438,18 +443,20 @@ int main(int argc, char** argv)
     std::string filename("");
     std::set<uint32_t> decodeframes;
     uint32_t channel(0);
-    const char *options = "hf:d:c:o";
+    const char *options = "hf:d:c:os:";
     struct option long_options[] = { 
       { "help", 0, 0, 'h' },
       { "fps",  1, 0, 'f' },
       { "decode", 1, 0, 'd' },
       { "channel", 1, 0, 'c' },
       { "offsetlist", 0, 0, 'o' },
+      { "fstep", 1, 0, 's' },
       { 0, 0, 0, 0 }
     };
     int opt(0);
     int option_index(0);
     bool offsetlist(false);
+    int fstep(1);
     while( (opt = getopt_long(argc, argv, options,
                               long_options, &option_index)) != -1){
       switch(opt){
@@ -466,6 +473,9 @@ int main(int argc, char** argv)
       case 'd':
         decodeframes.insert( atoi( optarg ) );
         break;
+      case 's':
+        fstep = atoi(optarg);
+        break;
       case 'o':
         offsetlist = true;
         break;
@@ -474,7 +484,7 @@ int main(int argc, char** argv)
     if( optind < argc )
       filename = argv[optind++];
     
-    decoder_t dec(filename,audiofps,decodeframes,channel);
+    decoder_t dec(filename,audiofps,decodeframes,channel,fstep);
     dec.b_list = offsetlist;
     dec.scan_frame_map();
     dec.sort_frames();

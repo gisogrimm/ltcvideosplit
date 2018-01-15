@@ -25,3 +25,6 @@ alignment frame numbers.
 Hint: When synchronizing the blender video editor to jack, it starts
 counting frames at 1, whereas the Ardour-generated time code starts at
 0.
+
+For videos with 50 fps, use the option '-s 2' to skip every second
+video frame in the analysis.
