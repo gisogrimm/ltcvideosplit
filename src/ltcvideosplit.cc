@@ -375,7 +375,7 @@ void decoder_t::process_video_sort(AVPacket* packet)
         int delta_sec(delta_frame_abs*fps_num/fps_den);
         char stime[32];
         memset(stime,0,32);
-        sprintf( stime, "%c%02d:%02d:%02d.%02d",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,(delta_frame_abs*fps_num)%fps_den );
+        sprintf( stime, "%c%02d:%02d:%02d.%02d %1.4fs/%d samples",(delta_frame<0)?'-':'+',delta_sec/3600,(delta_sec/60)%60,delta_sec%60,(delta_frame_abs*fps_num)%fps_den, (double)((int)aframe-(int)(lbound->first))/(pCodecCtxAudio->sample_rate), (int)aframe-(int)(lbound->first) );
         if( b_list ){
           std::cout << current_inframe*fstep << " " << current_frame*fstep << " " << delta_frame << std::endl;
         }else{
